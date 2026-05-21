@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexTrade — Redefining Digital Asset Trading</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+
+<!-- LOGIN / SIGNUP MODAL -->
+<div class="modal-overlay" id="authModal">
+    <div class="auth-modal">
+        <button class="close-modal" id="closeAuthModal">&times;</button>
+        <h2 id="authTitle">Welcome back</h2>
+        <div class="input-group">
+            <label>Email</label>
+            <input type="email" id="authEmail" placeholder="you@example.com">
+        </div>
+        <div class="input-group">
+            <label>Password</label>
+            <input type="password" id="authPassword" placeholder="••••••••">
+        </div>
+        <div class="auth-buttons">
+            <button class="btn-primary" id="authActionBtn">Log In</button>
+        </div>
+        <div class="toggle-mode">
+            <span id="toggleAuthMode">Don't have an account? Sign up</span>
+        </div>
+    </div>
+</div>
+
+<!-- NAV -->
+<nav>
+    <a href="#" class="nav-logo">Nex<span>Trade</span></a>
+    <ul class="nav-links">
+        <li><a href="#markets">Markets</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#how">How It Works</a></li>
+        <li><a href="#fees">Fees</a></li>
+        <!-- 👑 Owner panel link – hidden by default, shown only for owner -->
+        <li id="ownerPanel" style="display:none;">
+            <a href="admin.html" style="color:#F5A623; font-weight:600;">Admin Panel</a>
+        </li>
+    </ul>
+    <div class="nav-actions" id="navActions">
+        <a href="#" class="btn-ghost" id="loginBtn">Log In</a>
+        <a href="#" class="btn-primary" id="signupBtn">Get Started</a>
+    </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+    <div class="hero-badge">Live Trading Now Available</div>
+    <h1>Trade Digital Assets<br>with <em>Precision</em></h1>
+    <p>Experience institutional-grade crypto trading with lightning execution, real-time analytics, and bank-level security — built for everyone.</p>
+    <div class="hero-actions" id="heroActions">
+        <a href="#" class="btn-primary btn-lg" id="heroCta">Create Free Account</a>
+        <a href="#markets" class="btn-ghost btn-lg">View Markets</a>
+    </div>
+    <div class="hero-stats">
+        <div class="stat-item"><div class="stat-value">$4.2B+</div><div class="stat-label">24h Trading Volume</div></div>
+        <div class="stat-item"><div class="stat-value">320K+</div><div class="stat-label">Active Traders</div></div>
+        <div class="stat-item"><div class="stat-value">0.01%</div><div class="stat-label">Maker Fee</div></div>
+        <div class="stat-item"><div class="stat-value">99.9%</div><div class="stat-label">Uptime SLA</div></div>
+    </div>
+</section>
+
+<!-- TICKER -->
+<div class="ticker-wrap" aria-hidden="true">
+    <div class="ticker" id="ticker"></div>
+</div>
+
+<!-- MARKET OVERVIEW -->
+<section class="market-section" id="markets">
+    <div class="market-header">
+        <div class="section-label">Live Prices</div>
+        <div class="section-title">Market Overview</div>
+    </div>
+    <table class="market-table" id="marketTable">
+        <thead>
+            <tr>
+                <th>Asset</th><th>Price</th><th>24h Change</th><th>Market Cap</th><th style="text-align:right">Action</th>
+            </tr>
+        </thead>
+        <tbody id="marketBody"></tbody>
+    </table>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+    <div class="section-label">Why NexTrade</div>
+    <div class="section-title">Everything you need<br>to trade smarter</div>
+    <p class="section-sub">Powerful tools, airtight security, and a seamless experience — at any level of expertise.</p>
+    <div class="features-grid">
+        <div class="feature-card"><div class="feature-icon" style="background:rgba(62,207,178,0.1)">⚡</div><h3>Millisecond Execution</h3><p>Our matching engine processes over 1 million orders per second. By the time you blink, your trade is done.</p></div>
+        <div class="feature-card"><div class="feature-icon" style="background:rgba(108,99,255,0.1)">🔐</div><h3>Bank-Grade Security</h3><p>95% of funds held in cold storage, multi-sig wallets, and 2FA enforced across every account action.</p></div>
+        <div class="feature-card"><div class="feature-icon" style="background:rgba(245,166,35,0.1)">📊</div><h3>Advanced Charts</h3><p>Full TradingView integration with 80+ indicators, drawing tools, multi-timeframe analysis, and live order books.</p></div>
+        <div class="feature-card"><div class="feature-icon" style="background:rgba(255,94,108,0.1)">🤖</div><h3>Smart Alerts</h3><p>Set price alerts, pattern triggers, or volatility notifications. Never miss a move that matters to your strategy.</p></div>
+        <div class="feature-card"><div class="feature-icon" style="background:rgba(62,207,178,0.1)">💼</div><h3>Portfolio Analytics</h3><p>Track P&L, exposure, and risk metrics across all your positions in a unified, real-time dashboard.</p></div>
+        <div class="feature-card"><div class="feature-icon" style="background:rgba(108,99,255,0.1)">🌐</div><h3>Global Markets</h3><p>Access 200+ trading pairs across spot, margin, and futures — from BTC to emerging DeFi tokens.</p></div>
+    </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how" style="background:var(--bg2); border-top:1px solid var(--border); border-bottom:1px solid var(--border)">
+    <div class="section-label">Getting Started</div>
+    <div class="section-title">Up and trading<br>in 3 steps</div>
+    <div class="steps">
+        <div class="step"><div class="step-num">01</div><h4>Create Your Account</h4><p>Sign up with your email in under 60 seconds. No minimum deposit, no hidden fees.</p></div>
+        <div class="step"><div class="step-num">02</div><h4>Verify & Fund</h4><p>Complete quick KYC verification. Deposit crypto directly or buy with a card or bank transfer.</p></div>
+        <div class="step"><div class="step-num">03</div><h4>Start Trading</h4><p>Access spot, margin, or futures markets. Use advanced charts or our streamlined quick-trade panel.</p></div>
+        <div class="step"><div class="step-num">04</div><h4>Grow & Withdraw</h4><p>Monitor your portfolio, set automated strategies, and withdraw your gains anytime — instantly.</p></div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+    <div class="section-label">Join Today</div>
+    <h2>Ready to trade<br>like a pro?</h2>
+    <p>Create a free account in minutes and join 320,000+ traders on NexTrade.</p>
+    <a href="#" class="btn-primary btn-huge" id="bottomCta">Sign Up — It's Free</a>
+</section>
+
+<!-- FOOTER -->
+<footer>
+    <div class="footer-grid">
+        <div class="footer-brand"><a href="#" class="nav-logo">Nex<span>Trade</span></a><p>Redefining digital asset trading with speed, security, and transparency at every level.</p></div>
+        <div class="footer-col"><h5>Products</h5><ul><li><a href="#">Spot Trading</a></li><li><a href="#">Margin Trading</a></li><li><a href="#">Futures</a></li><li><a href="#">Staking</a></li></ul></div>
+        <div class="footer-col"><h5>Company</h5><ul><li><a href="#">About Us</a></li><li><a href="#">Careers</a></li><li><a href="#">Press</a></li><li><a href="#">Blog</a></li></ul></div>
+        <div class="footer-col"><h5>Support</h5><ul><li><a href="#">Help Center</a></li><li><a href="#">Contact</a></li><li><a href="#">Fee Schedule</a></li><li><a href="#">Status</a></li></ul></div>
+        <div class="footer-col"><h5>Legal</h5><ul><li><a href="#">Terms of Service</a></li><li><a href="#">Privacy Policy</a></li><li><a href="#">Cookie Policy</a></li><li><a href="#">Risk Disclosure</a></li></ul></div>
+    </div>
+    <div class="footer-bottom">
+        <span>© 2025 NexTrade. All rights reserved.</span>
+        <span>Crypto trading involves risk. Trade responsibly.</span>
+    </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

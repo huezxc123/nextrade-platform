@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel — NexTrade</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <style>
+        .admin-container { max-width: 1100px; margin: 100px auto 40px; padding: 0 5%; }
+        .admin-container h1 { font-family: 'Syne', sans-serif; font-size: 36px; margin-bottom: 24px; color: #f0f2f8; }
+        .back-link { display: inline-block; margin-bottom: 32px; color: #3ECFB2; text-decoration: none; }
+        table { width: 100%; border-collapse: collapse; background: #0c1120; border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; overflow: hidden; margin-bottom: 30px; }
+        th, td { padding: 14px 20px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        th { background: rgba(255,255,255,0.02); color: #8892a4; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
+        td { color: #f0f2f8; font-size: 14px; }
+        .action-btn { padding: 6px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; border: none; font-size: 12px; margin-right: 4px; }
+        .approve { background: var(--success); color: #060810; }
+        .reject { background: var(--danger); color: white; }
+        .role-badge { display: inline-block; padding: 3px 12px; border-radius: 100px; font-size: 12px; font-weight: 600; }
+        .role-owner { background: rgba(245,166,35,0.15); color: #F5A623; }
+        .role-user { background: rgba(255,255,255,0.05); color: #8892a4; }
+        .status-verified { color: var(--success); }
+        .status-pending { color: var(--accent3); }
+        .status-rejected { color: var(--danger); }
+    </style>
+</head>
+<body>
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+
+<nav>
+    <a href="index.html" class="nav-logo">Nex<span>Trade</span></a>
+    <div class="nav-actions">
+        <button class="btn-logout" onclick="logout()" style="background:rgba(255,94,108,0.1);border:1px solid rgba(255,94,108,0.3);color:#FF5E6C;padding:8px 20px;border-radius:6px;cursor:pointer;">Logout</button>
+    </div>
+</nav>
+
+<div class="admin-container">
+    <a href="index.html" class="back-link">← Back to NexTrade</a>
+    <h1>👑 Admin Panel</h1>
+
+    <h3 style="color:var(--text); margin-bottom:16px;">All Users</h3>
+    <div id="usersTableContainer"><div class="loading">Loading…</div></div>
+
+    <h3 style="color:var(--text); margin-bottom:16px;">Pending Verifications</h3>
+    <div id="verificationTableContainer"><div class="loading">Loading…</div></div>
+</div>
+
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyCEvGiXfF8xjODvUnuieHQqcnvyide_DUM",
+    authDomain: "nextrade-80b98.firebaseapp.com",
+    projectId: "nextrade-80b98",
+    storageBucket: "nextrade-80b98.firebasestorage.app",
+    messagingSenderId: "996607757147",
+    appId: "1:996607757147:web:e90f9baa7ca2db876f687e"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+
+  function logout() { auth.signOut(); window.location.href='index.html'; }
+
+  auth.onAuthStateChanged(async user => {
+    if (!user) return window.location.href='index.html';
+    const userData = (await db.collection('users').doc(user.uid).get()).data();
+    if (!userData || userData.role !== 'owner') {
+      alert('Access denied.');
+      window.location.href='index.html';
+      return;
+    }
+    loadAllUsers();
+    loadVerifications();
+  });
+
+  async function loadAllUsers() {
+    const snapshot = await db.collection('users').get();
+    let html = '<table><thead><tr><th>Email</th><th>Role</th><th>Verified</th></tr></thead><tbody>';
+    snapshot.forEach(doc => {
+      const d = doc.data();
+      html += `<tr><td>${d.email}</td><td><span class="role-badge role-${d.role||'user'}">${d.role||'user'}</span></td><td class="status-${d.verificationStatus||'unsubmitted'}">${d.verificationStatus||'unsubmitted'}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('usersTableContainer').innerHTML = html;
+  }
+
+  async function loadVerifications() {
+    const snapshot = await db.collection('users').where('verificationStatus','==','pending').get();
+    let html = '';
+    if (snapshot.empty) {
+      html = '<div class="loading">No pending verifications.</div>';
+    } else {
+      html = '<table><thead><tr><th>Email</th><th>Full Name</th><th>Phone</th><th>Action</th></tr></thead><tbody>';
+      snapshot.forEach(doc => {
+        const d = doc.data();
+        html += `<tr>
+          <td>${d.email}</td>
+          <td>${d.verificationData?.fullName||''}</td>
+          <td>${d.verificationData?.phone||''}</td>
+          <td>
+            <button class="action-btn approve" onclick="verifyUser('${doc.id}','approved')">Approve</button>
+            <button class="action-btn reject" onclick="verifyUser('${doc.id}','rejected')">Reject</button>
+          </td>
+        </tr>`;
+      });
+      html += '</tbody></table>';
+    }
+    document.getElementById('verificationTableContainer').innerHTML = html;
+  }
+
+  async function verifyUser(uid, status) {
+    await db.collection('users').doc(uid).update({
+      verificationStatus: status === 'approved' ? 'verified' : 'rejected'
+    });
+    loadVerifications();
+    loadAllUsers();
+  }
+</script>
+</body>
+</html>
