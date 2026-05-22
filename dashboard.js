@@ -1,8 +1,6 @@
 // ══════════════════════════════════════════
 //  NexTrade — dashboard.js
-//  Auth, Tabs, Balance, Verification,
-//  Referral, Receipts, Deposit/Withdraw
-//  History, Admin Settings, Email Verification
+//  (hardcoded config for local use only)
 // ══════════════════════════════════════════
 
 const firebaseConfig = {
@@ -18,7 +16,7 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
-// ── Coin prices (for holdings display) ──
+// ── Coin data (used by holdings display) ──
 const coins = {
   BTC: { name:'Bitcoin', price:0 },
   ETH: { name:'Ethereum', price:0 },
@@ -36,7 +34,6 @@ async function applyAdminSettings() {
     const settingsSnap = await db.collection('adminSettings').doc('platform').get();
     if (!settingsSnap.exists) return;
     const s = settingsSnap.data();
-
     if (s.maintenanceMode && currentUser) {
       const userDoc = await db.collection('users').doc(currentUser.uid).get();
       const role = userDoc.data()?.role;
@@ -45,21 +42,18 @@ async function applyAdminSettings() {
         return;
       }
     }
-
     if (s.announcement) {
       const banner = document.createElement('div');
-      banner.id = 'announcementBanner';
-      banner.style.cssText = 'background:#7c3aed;color:#fff;padding:10px;text-align:center;font-size:14px;font-weight:500;';
+      banner.style.cssText = 'background:#7c3aed;color:#fff;padding:10px;text-align:center;';
       banner.textContent = s.announcement;
       document.body.insertBefore(banner, document.body.firstChild);
     }
-
     window._tradingFeePercent = s.tradingFeePercent || 0.1;
     window._minWithdrawal = s.minWithdrawalAmount || 10;
     window._allowedCoins = s.allowedCoins || Object.keys(coins);
     window._referralBonus = s.referralBonusAmount || 50;
   } catch (err) {
-    console.error('Failed to apply admin settings:', err);
+    console.error('Admin settings load failed:', err);
   }
 }
 
@@ -102,16 +96,9 @@ auth.onAuthStateChanged(async (user) => {
   userEmailSpan.textContent = user.email;
   if (window._setUserUI) window._setUserUI(user.email);
 
-  // ✅ Email verification check
-  if (!user.emailVerified) {
-    document.getElementById('verificationPrompt').style.display = 'block';
-    document.getElementById('mainDashboardContent').style.display = 'none';
-    document.getElementById('verifyEmailDisplay').textContent = user.email;
-    return;  // Stop further loading
-  } else {
-    document.getElementById('verificationPrompt').style.display = 'none';
-    document.getElementById('mainDashboardContent').style.display = 'block';
-  }
+  // Email verification check (disabled for demo)
+  document.getElementById('verificationPrompt').style.display = 'none';
+  document.getElementById('mainDashboardContent').style.display = 'block';
 
   await applyAdminSettings();
   await initializeUserData();
@@ -156,6 +143,12 @@ function toggleTradeAccess() {
   if (isVerified) {
     tradeUnverified.style.display = 'none';
     tradeContent.style.display = 'block';
+    // Trigger chart initialisation
+    setTimeout(() => {
+      if (typeof window.initTradeModule === 'function') {
+        window.initTradeModule();
+      }
+    }, 200);
   } else {
     tradeUnverified.style.display = 'block';
     tradeContent.style.display = 'none';
@@ -184,7 +177,7 @@ function renderHoldings() {
   holdingsContainer.innerHTML = html;
 }
 
-// ── Verification (KYC) ──
+// ── Verification ──
 document.getElementById('verificationForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fullName = document.getElementById('fullName').value.trim();
@@ -379,7 +372,7 @@ async function fetchLivePrices() {
       const key = obj.name.toLowerCase();
       if (data[key]?.usd) obj.price = data[key].usd;
     }
-    renderHoldings(); // update holdings values
+    renderHoldings();
   } catch (err) {
     console.warn('Live price fetch failed.');
   }
@@ -470,7 +463,7 @@ function listenNotifications() {
 async function resendVerificationEmail() {
   try {
     await auth.currentUser.sendEmailVerification();
-    alert('Verification email resent. Check your inbox.');
+    alert('Verification email resent.');
   } catch (err) {
     alert('Error: ' + err.message);
   }
