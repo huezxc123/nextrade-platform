@@ -14,6 +14,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
     <style>
         /* Admin-specific overrides if needed */
@@ -128,6 +129,13 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M12 15v-4M10 13h4"/></svg>
         </span>
         Withdrawals
+    </button>
+
+    <button class="nav-item" data-page="wallets" onclick="switchAdminPage('wallets')">
+        <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16v10H4z"/><path d="M7 10h10"/></svg>
+        </span>
+        Wallets
     </button>
 
     <button class="nav-item" data-page="trades" onclick="switchAdminPage('trades')">
