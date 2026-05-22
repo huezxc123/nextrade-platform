@@ -1,8 +1,8 @@
 // ══════════════════════════════════════════
 //  NexTrade — dashboard.js
-//  Auth, Tabs, Trade, Verification, Referral,
-//  Receipts, Deposit History, Withdrawals,
-//  REAL‑TIME PRICES (CoinGecko)
+//  Auth, Tabs, Balance, Verification,
+//  Referral, Receipts, Deposit/Withdraw
+//  History, Admin Settings, Email Verification
 // ══════════════════════════════════════════
 
 const firebaseConfig = {
@@ -18,41 +18,52 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
-// ── Coin list with CoinGecko IDs ──
+// ── Coin prices (for holdings display) ──
 const coins = {
-  BTC: { name:'Bitcoin', id:'bitcoin', price:0 },
-  ETH: { name:'Ethereum', id:'ethereum', price:0 },
-  SOL: { name:'Solana', id:'solana', price:0 },
-  BNB: { name:'BNB', id:'binancecoin', price:0 },
-  DOGE:{ name:'Dogecoin', id:'dogecoin', price:0 },
-  ADA: { name:'Cardano', id:'cardano', price:0 },
-  LINK:{ name:'Chainlink', id:'chainlink', price:0 },
-  USDT:{ name:'Tether', id:'tether', price:0 }
+  BTC: { name:'Bitcoin', price:0 },
+  ETH: { name:'Ethereum', price:0 },
+  SOL: { name:'Solana', price:0 },
+  BNB: { name:'BNB', price:0 },
+  DOGE:{ name:'Dogecoin', price:0 },
+  ADA: { name:'Cardano', price:0 },
+  LINK:{ name:'Chainlink', price:0 },
+  USDT:{ name:'Tether', price:0 }
 };
 
-// ── Fetch real‑time prices from CoinGecko ──
-async function fetchLivePrices() {
+// ── Admin settings ──
+async function applyAdminSettings() {
   try {
-    const ids = Object.values(coins).map(c => c.id).join(',');
-    const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`);
-    const data = await res.json();
-    for (const [sym, obj] of Object.entries(coins)) {
-      if (data[obj.id]?.usd) {
-        obj.price = data[obj.id].usd;
+    const settingsSnap = await db.collection('adminSettings').doc('platform').get();
+    if (!settingsSnap.exists) return;
+    const s = settingsSnap.data();
+
+    if (s.maintenanceMode && currentUser) {
+      const userDoc = await db.collection('users').doc(currentUser.uid).get();
+      const role = userDoc.data()?.role;
+      if (role !== 'owner' && role !== 'manager') {
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#f0f2f8;font-family:Syne,sans-serif;font-size:24px;">🚧 Platform is under maintenance. Please check back later.</div>';
+        return;
       }
     }
-    // Update UI if visible
-    if (document.getElementById('tab-trade').classList.contains('active')) renderHoldings();
-    updateEstimatedQty();
+
+    if (s.announcement) {
+      const banner = document.createElement('div');
+      banner.id = 'announcementBanner';
+      banner.style.cssText = 'background:#7c3aed;color:#fff;padding:10px;text-align:center;font-size:14px;font-weight:500;';
+      banner.textContent = s.announcement;
+      document.body.insertBefore(banner, document.body.firstChild);
+    }
+
+    window._tradingFeePercent = s.tradingFeePercent || 0.1;
+    window._minWithdrawal = s.minWithdrawalAmount || 10;
+    window._allowedCoins = s.allowedCoins || Object.keys(coins);
+    window._referralBonus = s.referralBonusAmount || 50;
   } catch (err) {
-    console.warn('Price fetch failed, using last known prices.', err);
+    console.error('Failed to apply admin settings:', err);
   }
 }
 
-// Initial fetch, then every 30 seconds
-fetchLivePrices();
-setInterval(fetchLivePrices, 30000);
-
+// ── Global state ──
 let currentUser = null;
 let userBalance = 0;
 let holdings = {};
@@ -63,27 +74,24 @@ const balanceDisplay = document.getElementById('balanceDisplay');
 const userEmailSpan = document.getElementById('userEmail');
 const tradeUnverified = document.getElementById('tradeUnverified');
 const tradeContent = document.getElementById('tradeContent');
-const tradeSymbol = document.getElementById('tradeSymbol');
-const tradeAmount = document.getElementById('tradeAmount');
-const estimatedQty = document.getElementById('estimatedQty');
-const buyBtn = document.getElementById('buyBtn');
-const sellBtn = document.getElementById('sellBtn');
 const holdingsContainer = document.getElementById('holdingsContainer');
 
 // ── Tab switching ──
-document.querySelectorAll('.tab-btn').forEach(btn => {
+document.querySelectorAll('.nav-item').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
-    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-    if (btn.dataset.tab === 'referral') loadReferralData();
-    if (btn.dataset.tab === 'receipts') {
+    const tab = btn.dataset.tab;
+    document.getElementById('tab-' + tab).classList.add('active');
+    document.getElementById('topbarTitle').textContent = tab.charAt(0).toUpperCase() + tab.slice(1);
+    if (tab === 'referral') loadReferralData();
+    if (tab === 'receipts') {
       loadReceipts();
       loadDepositHistory();
       loadWithdrawHistory();
     }
-    if (btn.dataset.tab === 'account') loadVerificationStatus();
+    if (tab === 'account') loadVerificationStatus();
   });
 });
 
@@ -92,15 +100,30 @@ auth.onAuthStateChanged(async (user) => {
   if (!user) { window.location.href = 'index.html'; return; }
   currentUser = user;
   userEmailSpan.textContent = user.email;
+  if (window._setUserUI) window._setUserUI(user.email);
+
+  // ✅ Email verification check
+  if (!user.emailVerified) {
+    document.getElementById('verificationPrompt').style.display = 'block';
+    document.getElementById('mainDashboardContent').style.display = 'none';
+    document.getElementById('verifyEmailDisplay').textContent = user.email;
+    return;  // Stop further loading
+  } else {
+    document.getElementById('verificationPrompt').style.display = 'none';
+    document.getElementById('mainDashboardContent').style.display = 'block';
+  }
+
+  await applyAdminSettings();
   await initializeUserData();
   await loadHoldings();
-  updateEstimatedQty();
   loadReferralCode();
   loadVerificationStatus();
   loadReferralData();
   loadReceipts();
   loadDepositHistory();
   loadWithdrawHistory();
+  updateNotifBadge();
+  listenNotifications();
 });
 
 // ── Initialize user data ──
@@ -147,11 +170,12 @@ async function loadHoldings() {
   renderHoldings();
 }
 function renderHoldings() {
+  if (!holdingsContainer) return;
   if (Object.keys(holdings).length === 0) {
-    holdingsContainer.innerHTML = '<div class="loading">No holdings yet.</div>';
+    holdingsContainer.innerHTML = '<p class="empty-state">No holdings yet.</p>';
     return;
   }
-  let html = `<table class="holdings-table"><thead><tr><th>Asset</th><th>Quantity</th><th>Price</th><th>Value</th></tr></thead><tbody>`;
+  let html = `<table class="data-table"><thead><tr><th>Asset</th><th>Quantity</th><th>Price</th><th>Value</th></tr></thead><tbody>`;
   for (const [sym, qty] of Object.entries(holdings)) {
     const price = coins[sym]?.price || 0;
     html += `<tr><td>${sym}</td><td>${qty.toFixed(6)}</td><td>$${price.toFixed(2)}</td><td>$${(qty*price).toFixed(2)}</td></tr>`;
@@ -160,55 +184,7 @@ function renderHoldings() {
   holdingsContainer.innerHTML = html;
 }
 
-// ── Trade execution ──
-async function executeTrade(type) {
-  if (!isVerified) return alert('Verification required to trade.');
-  const symbol = tradeSymbol.value;
-  const amountUSD = parseFloat(tradeAmount.value);
-  if (!amountUSD || amountUSD <= 0) return alert('Enter a valid USD amount.');
-  const price = coins[symbol]?.price;
-  if (!price) return alert('Price not available. Try again.');
-  const quantity = amountUSD / price;
-  const userRef = db.collection('users').doc(currentUser.uid);
-  if (type === 'buy' && userBalance < amountUSD) return alert('Insufficient balance.');
-  if (type === 'sell') {
-    const currentQty = holdings[symbol] || 0;
-    if (currentQty < quantity) return alert('Not enough holdings.');
-  }
-  const batch = db.batch();
-  const newBalance = type === 'buy' ? userBalance - amountUSD : userBalance + amountUSD;
-  batch.update(userRef, { balance: newBalance });
-  const holdingRef = userRef.collection('holdings').doc(symbol);
-  const newQty = type === 'buy' ? (holdings[symbol]||0) + quantity : (holdings[symbol]||0) - quantity;
-  if (newQty <= 0) batch.delete(holdingRef);
-  else batch.set(holdingRef, { quantity: newQty });
-  const tradeRef = userRef.collection('trades').doc();
-  batch.set(tradeRef, {
-    symbol, type, quantity, price, amount: amountUSD,
-    timestamp: firebase.firestore.FieldValue.serverTimestamp()
-  });
-  await batch.commit();
-  userBalance = newBalance;
-  balanceDisplay.textContent = '$' + userBalance.toLocaleString('en-US', { minimumFractionDigits: 2 });
-  if (newQty <= 0) delete holdings[symbol];
-  else holdings[symbol] = newQty;
-  renderHoldings();
-  tradeAmount.value = '';
-  updateEstimatedQty();
-  loadReceipts();
-}
-buyBtn.addEventListener('click', () => executeTrade('buy'));
-sellBtn.addEventListener('click', () => executeTrade('sell'));
-function updateEstimatedQty() {
-  const amount = parseFloat(tradeAmount.value);
-  const price = coins[tradeSymbol.value]?.price;
-  if (amount && price) estimatedQty.textContent = `You get ≈ ${(amount/price).toFixed(6)} ${tradeSymbol.value}`;
-  else estimatedQty.textContent = '';
-}
-tradeSymbol.addEventListener('change', updateEstimatedQty);
-tradeAmount.addEventListener('input', updateEstimatedQty);
-
-// ── Verification ──
+// ── Verification (KYC) ──
 document.getElementById('verificationForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fullName = document.getElementById('fullName').value.trim();
@@ -232,7 +208,7 @@ document.getElementById('verificationForm').addEventListener('submit', async (e)
           timestamp: firebase.firestore.FieldValue.serverTimestamp()
         });
         const referrerData = (await referrerDoc.ref.get()).data();
-        await referrerDoc.ref.update({ balance: (referrerData.balance || 0) + 50 });
+        await referrerDoc.ref.update({ balance: (referrerData.balance || 0) + (window._referralBonus || 50) });
       }
     }
   }
@@ -246,10 +222,10 @@ async function loadVerificationStatus() {
   const data = doc.data();
   const status = data.verificationStatus || 'unsubmitted';
   let statusHTML = '';
-  if (status === 'verified') statusHTML = '<span class="verification-status status-verified">✅ Verified</span>';
-  else if (status === 'pending') statusHTML = '<span class="verification-status status-pending">⏳ Pending Approval</span>';
-  else if (status === 'rejected') statusHTML = '<span class="verification-status status-rejected">❌ Rejected</span>';
-  else statusHTML = '<span class="verification-status" style="color:var(--muted);">Not submitted</span>';
+  if (status === 'verified') statusHTML = '<span class="vbadge-verified">✅ Verified</span>';
+  else if (status === 'pending') statusHTML = '<span class="vbadge-pending">⏳ Pending Approval</span>';
+  else if (status === 'rejected') statusHTML = '<span class="vbadge-rejected">❌ Rejected</span>';
+  else statusHTML = '<span class="verification-badge" style="color:var(--muted);">Not submitted</span>';
   document.getElementById('verificationStatusDisplay').innerHTML = statusHTML;
   isVerified = status === 'verified';
   toggleTradeAccess();
@@ -276,34 +252,38 @@ async function loadReferralCode() {
 async function loadReferralData() {
   const referralsSnapshot = await db.collection('users').doc(currentUser.uid).collection('referrals').get();
   const count = referralsSnapshot.size;
-  document.getElementById('referralStats').innerHTML = `Total referrals: ${count} (earning $${count*50} bonus)`;
+  document.getElementById('referralStats').innerHTML = `Total referrals: ${count} (earning $${count * (window._referralBonus || 50)} bonus)`;
   let html = '';
   referralsSnapshot.forEach(doc => {
-    html += `<div class="history-item"><span>${doc.data().email}</span><span style="color:var(--muted)">${new Date(doc.data().timestamp?.seconds*1000).toLocaleDateString()}</span></div>`;
+    html += `<div class="history-row"><span>${doc.data().email}</span><span class="history-meta">${new Date(doc.data().timestamp?.seconds*1000).toLocaleDateString()}</span></div>`;
   });
-  document.getElementById('referredList').innerHTML = html || '<div class="loading">No referrals yet.</div>';
+  document.getElementById('referredList').innerHTML = html || '<p class="empty-state">No referrals yet.</p>';
 }
 
 // ── Trade receipts ──
 async function loadReceipts() {
-  const snapshot = await db.collection('users').doc(currentUser.uid).collection('trades').orderBy('timestamp','desc').limit(50).get();
+  const container = document.getElementById('receiptsContainer');
+  if (!container) return;
+  const snapshot = await db.collection('users').doc(currentUser.uid).collection('trades')
+    .orderBy('timestamp','desc').limit(50).get();
   let html = '';
   snapshot.forEach(doc => {
     const t = doc.data();
     const dt = t.timestamp?.toDate().toLocaleString();
     html += `
-      <div class="receipt-item">
-        <div>
-          <strong class="${t.type==='buy'?'trade-buy':'trade-sell'}">${t.type.toUpperCase()}</strong> ${t.quantity.toFixed(6)} ${t.symbol}
-          <div style="color:var(--muted); font-size:12px;">${dt}</div>
+      <div class="history-row">
+        <div class="history-left">
+          <span class="history-type ${t.side==='buy'?'trade-buy':'trade-sell'}">${t.side.toUpperCase()}</span>
+          <span>${t.quantity?.toFixed(6)} ${t.symbol}</span>
+          <span class="history-meta">${dt}</span>
         </div>
         <div style="text-align:right;">
           <div>$${t.amount.toFixed(2)}</div>
-          <div style="font-size:12px; color:var(--muted);">@ $${t.price.toFixed(2)}</div>
+          <div class="history-meta">@ $${t.price.toFixed(2)}</div>
         </div>
       </div>`;
   });
-  document.getElementById('receiptsContainer').innerHTML = html || '<div class="loading">No trades yet.</div>';
+  container.innerHTML = html || '<p class="empty-state">No trades yet.</p>';
 }
 
 // ── Deposit receipt submission & history ──
@@ -342,16 +322,10 @@ async function loadDepositHistory() {
   const snapshot = await db.collection('users').doc(currentUser.uid).collection('deposits')
     .orderBy('timestamp', 'desc').limit(30).get();
   if (snapshot.empty) {
-    container.innerHTML = '<div class="loading">You have not submitted any receipts.</div>';
+    container.innerHTML = '<p class="empty-state">No deposits yet.</p>';
     return;
   }
-  let html = `
-    <table class="holdings-table">
-      <thead>
-        <tr><th>Asset</th><th>Amount</th><th>TX Hash</th><th>Status</th><th>Date</th></tr>
-      </thead>
-      <tbody>
-  `;
+  let html = `<table class="data-table"><thead><tr><th>Asset</th><th>Amount</th><th>TX Hash</th><th>Status</th><th>Date</th></tr></thead><tbody>`;
   snapshot.forEach(doc => {
     const d = doc.data();
     const date = d.timestamp?.toDate().toLocaleString();
@@ -359,11 +333,10 @@ async function loadDepositHistory() {
       <tr>
         <td>${d.asset || d.coin || '—'}</td>
         <td>$${d.amount.toFixed(2)}</td>
-        <td style="font-family:monospace; font-size:12px;">${d.txHash.slice(0,10)}…</td>
-        <td style="color:${d.status==='approved' ? 'var(--success)' : d.status==='rejected' ? 'var(--danger)' : 'var(--accent3)'}">${d.status}</td>
+        <td style="font-family:monospace; font-size:12px;">${d.txHash?.slice(0,10) || '—'}…</td>
+        <td><span class="badge-status badge-${d.status}">${d.status}</span></td>
         <td>${date}</td>
-      </tr>
-    `;
+      </tr>`;
   });
   html += '</tbody></table>';
   container.innerHTML = html;
@@ -376,16 +349,10 @@ async function loadWithdrawHistory() {
   const snapshot = await db.collection('users').doc(currentUser.uid).collection('withdrawals')
     .orderBy('timestamp', 'desc').limit(30).get();
   if (snapshot.empty) {
-    container.innerHTML = '<div class="loading">No withdrawals yet.</div>';
+    container.innerHTML = '<p class="empty-state">No withdrawals yet.</p>';
     return;
   }
-  let html = `
-    <table class="holdings-table">
-      <thead>
-        <tr><th>Asset</th><th>Amount</th><th>Address</th><th>Status</th><th>Date</th></tr>
-      </thead>
-      <tbody>
-  `;
+  let html = `<table class="data-table"><thead><tr><th>Asset</th><th>Amount</th><th>Address</th><th>Status</th><th>Date</th></tr></thead><tbody>`;
   snapshot.forEach(doc => {
     const d = doc.data();
     const date = d.timestamp?.toDate().toLocaleString();
@@ -393,14 +360,120 @@ async function loadWithdrawHistory() {
       <tr>
         <td>${d.asset || '—'}</td>
         <td>$${d.amount.toFixed(2)}</td>
-        <td style="font-family:monospace; font-size:12px;">${d.address.slice(0,10)}…</td>
-        <td style="color:var(--success)">${d.status || 'completed'}</td>
+        <td style="font-family:monospace; font-size:12px;">${d.address?.slice(0,10) || '—'}…</td>
+        <td><span class="badge-status badge-${d.status}">${d.status}</span></td>
         <td>${date}</td>
-      </tr>
-    `;
+      </tr>`;
   });
   html += '</tbody></table>';
   container.innerHTML = html;
+}
+
+// ── Live price fetch (for holdings display) ──
+async function fetchLivePrices() {
+  try {
+    const ids = Object.values(coins).map(c => c.name.toLowerCase()).join(',');
+    const res = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`);
+    const data = await res.json();
+    for (const [sym, obj] of Object.entries(coins)) {
+      const key = obj.name.toLowerCase();
+      if (data[key]?.usd) obj.price = data[key].usd;
+    }
+    renderHoldings(); // update holdings values
+  } catch (err) {
+    console.warn('Live price fetch failed.');
+  }
+}
+fetchLivePrices();
+setInterval(fetchLivePrices, 30000);
+
+// ── Notifications ──
+let unreadNotifCount = 0;
+
+async function updateNotifBadge() {
+  const badge = document.getElementById('notifBadge');
+  if (!badge) return;
+  try {
+    const unreadSnap = await db.collection('users').doc(currentUser.uid)
+      .collection('notifications').where('read', '==', false).get();
+    unreadNotifCount = unreadSnap.size;
+    if (unreadNotifCount > 0) {
+      badge.textContent = unreadNotifCount;
+      badge.style.display = 'block';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch (err) {
+    console.error('Error fetching notifications:', err);
+  }
+}
+
+async function openNotificationsModal() {
+  const modal = document.getElementById('notifModal');
+  const container = document.getElementById('notifListContainer');
+  modal.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  container.innerHTML = '<p class="loading">Loading…</p>';
+
+  try {
+    const snap = await db.collection('users').doc(currentUser.uid)
+      .collection('notifications').orderBy('timestamp', 'desc').limit(50).get();
+
+    if (snap.empty) {
+      container.innerHTML = '<p class="empty-state">No notifications.</p>';
+    } else {
+      let html = '';
+      snap.forEach(doc => {
+        const n = doc.data();
+        const date = n.timestamp?.toDate?.()?.toLocaleString() || '—';
+        html += `
+          <div class="history-row" style="align-items:flex-start; ${!n.read ? 'border-left:3px solid var(--accent); padding-left:12px;' : ''}">
+            <div>
+              <strong>${n.title}</strong>
+              <p style="color:var(--muted); font-size:12px; margin-top:4px;">${n.message}</p>
+              <span class="history-meta">From: ${n.from || 'Admin'} • ${date}</span>
+            </div>
+            ${!n.read ? '<span class="badge badge-info" style="font-size:10px;">NEW</span>' : ''}
+          </div>`;
+      });
+      container.innerHTML = html;
+    }
+
+    // Mark all as read
+    const unreadSnap = await db.collection('users').doc(currentUser.uid)
+      .collection('notifications').where('read', '==', false).get();
+    const batch = db.batch();
+    unreadSnap.forEach(doc => batch.update(doc.ref, { read: true }));
+    await batch.commit();
+    updateNotifBadge();
+  } catch (err) {
+    container.innerHTML = '<p class="error">Error loading notifications.</p>';
+    console.error(err);
+  }
+}
+
+function listenNotifications() {
+  if (!currentUser) return;
+  db.collection('users').doc(currentUser.uid)
+    .collection('notifications').where('read', '==', false)
+    .onSnapshot(snap => {
+      unreadNotifCount = snap.size;
+      const badge = document.getElementById('notifBadge');
+      if (badge) {
+        badge.textContent = unreadNotifCount;
+        badge.style.display = unreadNotifCount > 0 ? 'block' : 'none';
+      }
+    });
+}
+
+// ── Resend verification email ──
+async function resendVerificationEmail() {
+  try {
+    await auth.currentUser.sendEmailVerification();
+    alert('Verification email resent. Check your inbox.');
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
 }
 
 // ── Logout ──
