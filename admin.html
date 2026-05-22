@@ -4,120 +4,195 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel — NexTrade</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <!-- Shared stylesheets (same look as dashboard) -->
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="dashboard.css">
+
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
     <style>
-        .admin-container { max-width: 1100px; margin: 100px auto 40px; padding: 0 5%; }
-        .admin-container h1 { font-family: 'Syne', sans-serif; font-size: 36px; margin-bottom: 24px; color: #f0f2f8; }
-        .back-link { display: inline-block; margin-bottom: 32px; color: #3ECFB2; text-decoration: none; }
-        table { width: 100%; border-collapse: collapse; background: #0c1120; border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; overflow: hidden; margin-bottom: 30px; }
-        th, td { padding: 14px 20px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        th { background: rgba(255,255,255,0.02); color: #8892a4; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
-        td { color: #f0f2f8; font-size: 14px; }
-        .action-btn { padding: 6px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; border: none; font-size: 12px; margin-right: 4px; }
-        .approve { background: var(--success); color: #060810; }
-        .reject { background: var(--danger); color: white; }
-        .role-badge { display: inline-block; padding: 3px 12px; border-radius: 100px; font-size: 12px; font-weight: 600; }
-        .role-owner { background: rgba(245,166,35,0.15); color: #F5A623; }
-        .role-user { background: rgba(255,255,255,0.05); color: #8892a4; }
-        .status-verified { color: var(--success); }
-        .status-pending { color: var(--accent3); }
-        .status-rejected { color: var(--danger); }
+        /* Admin-specific overrides if needed */
+        .admin-user-detail-modal {
+            /* We'll use the existing modal styles, just add some tweaks */
+        }
+        .search-box {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--bg3);
+            border: 1px solid var(--border2);
+            border-radius: 9px;
+            color: var(--text);
+            font-family: var(--font-body);
+            font-size: 14px;
+            outline: none;
+            margin-bottom: 16px;
+        }
+        .search-box:focus { border-color: var(--accent); }
+        .badge {
+            padding: 3px 10px;
+            border-radius: 100px;
+            font-size: 11px;
+            font-weight: 600;
+            display: inline-block;
+        }
+        .badge-success { background: rgba(62,207,178,0.15); color: var(--success); }
+        .badge-warning { background: rgba(245,166,35,0.15); color: #f5a623; }
+        .badge-danger  { background: rgba(255,94,108,0.15); color: var(--danger); }
+        .badge-info    { background: rgba(108,99,255,0.15); color: #6C63FF; }
+
+        .clickable-row { cursor: pointer; transition: background 0.15s; }
+        .clickable-row:hover { background: var(--bg3); }
+
+        /* Make main content similar to dashboard */
+        .admin-main {
+            margin-left: var(--sidebar-w);
+            padding: 32px 36px 60px;
+            min-height: 100vh;
+            overflow-y: auto;
+        }
+        /* Override .main-content for admin (same) */
+        .topbar-admin {
+            position: sticky; top: 0;
+            background: rgba(8,11,20,0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 36px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 50;
+            margin-left: var(--sidebar-w); /* because sidebar is fixed */
+        }
+        /* Actually, we'll put topbar inside main-content */
     </style>
 </head>
 <body>
-<div class="blob blob-1"></div>
-<div class="blob blob-2"></div>
 
-<nav>
-    <a href="index.html" class="nav-logo">Nex<span>Trade</span></a>
-    <div class="nav-actions">
-        <button class="btn-logout" onclick="logout()" style="background:rgba(255,94,108,0.1);border:1px solid rgba(255,94,108,0.3);color:#FF5E6C;padding:8px 20px;border-radius:6px;cursor:pointer;">Logout</button>
+<!-- Mobile overlay & toggle (same as dashboard) -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeMobileSidebar()"></div>
+<button class="sidebar-toggle" onclick="toggleMobileSidebar()" aria-label="Open menu">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+    </svg>
+</button>
+
+<!-- ══ SIDEBAR (admin version) ══ -->
+<aside class="sidebar" id="sidebar">
+    <a href="index.html" class="sidebar-logo">Nex<span>Trade</span> Admin</a>
+
+    <div class="sidebar-section-label">Main</div>
+
+    <button class="nav-item active" data-page="overview" onclick="switchAdminPage('overview')">
+        <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        </span>
+        Overview
+    </button>
+
+    <button class="nav-item" data-page="users" onclick="switchAdminPage('users')">
+        <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+        </span>
+        Users
+    </button>
+
+    <button class="nav-item" data-page="verifications" onclick="switchAdminPage('verifications')">
+        <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        </span>
+        Verifications
+    </button>
+
+    <button class="nav-item" data-page="logs" onclick="switchAdminPage('logs')">
+        <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </span>
+        Activity Log
+    </button>
+    <div class="sidebar-section-label">Finance</div>
+
+    <button class="nav-item" data-page="deposits" onclick="switchAdminPage('deposits')">
+        <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M12 9v4M10 11h4"/></svg>
+        </span>
+        Deposits
+    </button>
+
+    <button class="nav-item" data-page="withdrawals" onclick="switchAdminPage('withdrawals')">
+        <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M12 15v-4M10 13h4"/></svg>
+        </span>
+        Withdrawals
+    </button>
+
+    <button class="nav-item" data-page="trades" onclick="switchAdminPage('trades')">
+        <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+        </span>
+        Trades
+    </button>
+
+    <div class="sidebar-section-label">Platform</div>
+
+    <button class="nav-item" data-page="settings" onclick="switchAdminPage('settings')">
+        <span class="nav-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        </span>
+        Settings
+    </button>
+    <div class="sidebar-footer">
+        <div class="user-chip">
+            <div class="user-avatar" id="adminAvatarInitial">?</div>
+            <div class="user-email" id="adminEmail">—</div>
+        </div>
+        <button class="btn-logout" onclick="logout()">Sign Out</button>
     </div>
-</nav>
+</aside>
 
-<div class="admin-container">
-    <a href="index.html" class="back-link">← Back to NexTrade</a>
-    <h1>👑 Admin Panel</h1>
+<!-- ══ MAIN CONTENT ══ -->
+<div class="main-content" style="margin-left: var(--sidebar-w);">
+    <div class="topbar">
+        <div class="topbar-title" id="adminPageTitle">Overview</div>
+        <a href="index.html" class="topbar-back">← Back to NexTrade</a>
+    </div>
 
-    <h3 style="color:var(--text); margin-bottom:16px;">All Users</h3>
-    <div id="usersTableContainer"><div class="loading">Loading…</div></div>
-
-    <h3 style="color:var(--text); margin-bottom:16px;">Pending Verifications</h3>
-    <div id="verificationTableContainer"><div class="loading">Loading…</div></div>
+    <div class="page-content" id="adminPageContent">
+        <!-- Dynamically filled by JS -->
+    </div>
 </div>
 
-<script>
-  const firebaseConfig = {
-    apiKey: "AIzaSyCEvGiXfF8xjODvUnuieHQqcnvyide_DUM",
-    authDomain: "nextrade-80b98.firebaseapp.com",
-    projectId: "nextrade-80b98",
-    storageBucket: "nextrade-80b98.firebasestorage.app",
-    messagingSenderId: "996607757147",
-    appId: "1:996607757147:web:e90f9baa7ca2db876f687e"
-  };
-  firebase.initializeApp(firebaseConfig);
-  const auth = firebase.auth();
-  const db = firebase.firestore();
+<!-- User Detail Modal (reuses existing modal styles) -->
+<div class="modal-backdrop" id="userDetailModal" onclick="handleBackdropClick(event,'userDetailModal')">
+    <div class="modal" style="max-width: 700px; max-height: 90vh; overflow-y: auto;">
+        <button class="modal-close" onclick="closeModal('userDetailModal')">✕</button>
+        <div id="userDetailContent"></div>
+    </div>
+</div>
 
-  function logout() { auth.signOut(); window.location.href='index.html'; }
+<!-- Balance Adjust Modal -->
+<div class="modal-backdrop" id="balanceAdjustModal" onclick="handleBackdropClick(event,'balanceAdjustModal')">
+    <div class="modal" style="max-width: 450px;">
+        <button class="modal-close" onclick="closeModal('balanceAdjustModal')">✕</button>
+        <h2>Adjust Balance</h2>
+        <div id="adjustUserInfo" style="margin-bottom:16px; color:var(--muted);"></div>
+        <label class="modal-field-label">Amount (positive = credit, negative = debit)</label>
+        <div class="amount-input-wrap" style="margin-bottom:14px;">
+            <span class="prefix">$</span>
+            <input type="number" id="adjustAmount" step="any" placeholder="0.00">
+        </div>
+        <label class="modal-field-label">Reason</label>
+        <input type="text" id="adjustReason" class="form-input" placeholder="e.g. Manual deposit correction" style="margin-bottom:14px;">
+        <div class="error-msg" id="adjustError">Please fill all fields.</div>
+        <button class="btn-submit-receipt" onclick="applyBalanceAdjustment()">Apply Adjustment</button>
+    </div>
+</div>
 
-  auth.onAuthStateChanged(async user => {
-    if (!user) return window.location.href='index.html';
-    const userData = (await db.collection('users').doc(user.uid).get()).data();
-    if (!userData || userData.role !== 'owner') {
-      alert('Access denied.');
-      window.location.href='index.html';
-      return;
-    }
-    loadAllUsers();
-    loadVerifications();
-  });
+<script src="admin.js"></script>
 
-  async function loadAllUsers() {
-    const snapshot = await db.collection('users').get();
-    let html = '<table><thead><tr><th>Email</th><th>Role</th><th>Verified</th></tr></thead><tbody>';
-    snapshot.forEach(doc => {
-      const d = doc.data();
-      html += `<tr><td>${d.email}</td><td><span class="role-badge role-${d.role||'user'}">${d.role||'user'}</span></td><td class="status-${d.verificationStatus||'unsubmitted'}">${d.verificationStatus||'unsubmitted'}</td></tr>`;
-    });
-    html += '</tbody></table>';
-    document.getElementById('usersTableContainer').innerHTML = html;
-  }
-
-  async function loadVerifications() {
-    const snapshot = await db.collection('users').where('verificationStatus','==','pending').get();
-    let html = '';
-    if (snapshot.empty) {
-      html = '<div class="loading">No pending verifications.</div>';
-    } else {
-      html = '<table><thead><tr><th>Email</th><th>Full Name</th><th>Phone</th><th>Action</th></tr></thead><tbody>';
-      snapshot.forEach(doc => {
-        const d = doc.data();
-        html += `<tr>
-          <td>${d.email}</td>
-          <td>${d.verificationData?.fullName||''}</td>
-          <td>${d.verificationData?.phone||''}</td>
-          <td>
-            <button class="action-btn approve" onclick="verifyUser('${doc.id}','approved')">Approve</button>
-            <button class="action-btn reject" onclick="verifyUser('${doc.id}','rejected')">Reject</button>
-          </td>
-        </tr>`;
-      });
-      html += '</tbody></table>';
-    }
-    document.getElementById('verificationTableContainer').innerHTML = html;
-  }
-
-  async function verifyUser(uid, status) {
-    await db.collection('users').doc(uid).update({
-      verificationStatus: status === 'approved' ? 'verified' : 'rejected'
-    });
-    loadVerifications();
-    loadAllUsers();
-  }
-</script>
 </body>
 </html>
