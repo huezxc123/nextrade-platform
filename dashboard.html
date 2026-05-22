@@ -134,8 +134,6 @@
                 </div>
                 <div id="tradeContent" style="display:none;">
                     <!-- Trade UI (ticker, chart, order panel, holdings) -->
-                    <!-- Include your existing trade layout here -->
-                    <!-- For brevity, I'm placing a placeholder, but you have the full trade UI from earlier -->
                     <div class="ticker-bar">
                         <div class="ticker-pair" id="tickerSelected">
                             <span class="ticker-symbol">BTC/USD</span>
@@ -347,15 +345,522 @@
     </div><!-- /page-content -->
 </div><!-- /main-content -->
 
-<!-- DEPOSIT & WITHDRAW MODALS (same as before) -->
-<!-- Include your existing modals here -->
+<!-- DEPOSIT & WITHDRAW MODALS (keep your existing ones here) -->
+<!-- ... your existing modals ... -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="dashboard.js"></script>
 
+<!-- =========================================== -->
+<!-- PRO TRADE MODULE (chart, order book, trade) -->
+<!-- =========================================== -->
 <script>
-/* (Your deposit modal and trade module inline scripts remain unchanged) */
+/* ════════════════════════════════════════════════════
+   PRO TRADE MODULE
+   Simulated prices, chart, order book, order panel
+════════════════════════════════════════════════════ */
+
+const COIN_DATA = {
+    BTC:  { name:'Bitcoin',   base: 67800,  vol: 1200,  mcap:'$1.34T', dayVol:'$28.4B' },
+    ETH:  { name:'Ethereum',  base: 3740,   vol: 80,    mcap:'$449B',  dayVol:'$14.2B' },
+    SOL:  { name:'Solana',    base: 178,    vol: 5,     mcap:'$82B',   dayVol:'$3.1B'  },
+    BNB:  { name:'BNB',       base: 610,    vol: 12,    mcap:'$88B',   dayVol:'$1.8B'  },
+    DOGE: { name:'Dogecoin',  base: 0.168,  vol: 0.003, mcap:'$24B',   dayVol:'$1.2B'  },
+    ADA:  { name:'Cardano',   base: 0.475,  vol: 0.008, mcap:'$17B',   dayVol:'$420M'  },
+    LINK: { name:'Chainlink', base: 17.4,   vol: 0.4,   mcap:'$10B',   dayVol:'$520M'  },
+    USDT: { name:'Tether',    base: 1.0,    vol: 0.001, mcap:'$112B',  dayVol:'$51B'   },
+};
+
+let currentSymbol = 'BTC';
+let currentPrices = {};
+let chartInstance = null;
+let chartType = 'candle';
+let chartInterval = '1m';
+let orderSide = 'buy';
+let orderType = 'market';
+let priceHistory = {};
+let priceTickInterval = null;
+
+function fmt(n, decimals) {
+    if (n === undefined || n === null || isNaN(n)) return '—';
+    if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+    if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
+    return '$' + n.toLocaleString('en-US', { minimumFractionDigits: decimals ?? 2, maximumFractionDigits: decimals ?? 2 });
+}
+function fmtCoin(n, sym) {
+    const d = COIN_DATA[sym];
+    if (!d) return n.toFixed(6);
+    if (d.base >= 1000) return n.toFixed(4);
+    if (d.base >= 1)    return n.toFixed(4);
+    return n.toFixed(2);
+}
+function rnd(base, spread) { return base + (Math.random() - 0.5) * 2 * spread; }
+
+/* ── Generate initial price & history ── */
+function initPrices() {
+    Object.keys(COIN_DATA).forEach(sym => {
+        const d = COIN_DATA[sym];
+        const p = rnd(d.base, d.vol * 0.3);
+        currentPrices[sym] = p;
+        priceHistory[sym] = generateHistory(sym, p, 80);
+    });
+}
+
+function generateHistory(sym, lastPrice, count) {
+    const d = COIN_DATA[sym];
+    const bars = [];
+    let price = lastPrice * (1 + (Math.random() - 0.5) * 0.05);
+    for (let i = 0; i < count; i++) {
+        const o = price;
+        const move = (Math.random() - 0.48) * d.vol * 0.4;
+        const c = Math.max(o + move, 0.001);
+        const h = Math.max(o, c) + Math.random() * d.vol * 0.2;
+        const l = Math.min(o, c) - Math.random() * d.vol * 0.2;
+        bars.push({ o, h, l, c, t: Date.now() - (count - i) * 60000 });
+        price = c;
+    }
+    return bars;
+}
+
+/* ── Tick: update prices ── */
+function tickPrices() {
+    Object.keys(COIN_DATA).forEach(sym => {
+        const d = COIN_DATA[sym];
+        const prev = currentPrices[sym];
+        const move = (Math.random() - 0.49) * d.vol * 0.08;
+        const np = Math.max(prev + move, 0.0001);
+        currentPrices[sym] = np;
+        const bars = priceHistory[sym];
+        const last = bars[bars.length - 1];
+        last.c = np;
+        last.h = Math.max(last.h, np);
+        last.l = Math.min(last.l, np);
+    });
+
+    updateTickerBar();
+    if (chartInstance) updateChart();
+    updateOrderBook();
+    updateOrderCalc();
+
+    const priceEl = document.getElementById('tickerPrice');
+    if (priceEl) {
+        priceEl.style.transform = 'scale(1.04)';
+        setTimeout(() => { priceEl.style.transform = 'scale(1)'; }, 150);
+    }
+}
+
+/* ── Ticker bar ── */
+function buildTickerCoins() {
+    const container = document.getElementById('tickerCoins');
+    if (!container) return;
+    container.innerHTML = '';
+    Object.keys(COIN_DATA).forEach(sym => {
+        const pill = document.createElement('div');
+        pill.className = 'ticker-coin-pill' + (sym === currentSymbol ? ' active' : '');
+        pill.id = 'tcp-' + sym;
+        pill.onclick = () => selectSymbol(sym);
+        pill.innerHTML = `<span>${sym}</span><span class="tcp-chg" id="tcpchg-${sym}">—</span>`;
+        container.appendChild(pill);
+    });
+}
+
+function updateTickerBar() {
+    const sym = currentSymbol;
+    const price = currentPrices[sym];
+    const d = COIN_DATA[sym];
+    if (!price || !d) return;
+
+    const open24 = priceHistory[sym][0]?.o || price;
+    const pct = ((price - open24) / open24 * 100);
+    const high24 = Math.max(...priceHistory[sym].map(b => b.h));
+    const low24  = Math.min(...priceHistory[sym].map(b => b.l));
+
+    const priceEl = document.getElementById('tickerPrice');
+    const changeEl = document.getElementById('tickerChange');
+    if (priceEl) priceEl.textContent = fmt(price);
+    if (changeEl) {
+        changeEl.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+        changeEl.className = 'ticker-change ' + (pct >= 0 ? 'up' : 'dn');
+    }
+    const h = document.getElementById('stat24hHigh'); if (h) h.textContent = fmt(high24);
+    const l = document.getElementById('stat24hLow');  if (l) l.textContent = fmt(low24);
+    const v = document.getElementById('stat24hVol');  if (v) v.textContent = d.dayVol;
+    const m = document.getElementById('statMktCap');  if (m) m.textContent = d.mcap;
+    const sym2 = document.getElementById('tickerSelected');
+    if (sym2) sym2.querySelector('.ticker-symbol').textContent = sym + '/USD';
+
+    Object.keys(COIN_DATA).forEach(s => {
+        const el = document.getElementById('tcpchg-' + s);
+        if (!el || !priceHistory[s]?.length) return;
+        const o = priceHistory[s][0].o || currentPrices[s];
+        const p = ((currentPrices[s] - o) / o * 100);
+        el.textContent = (p >= 0 ? '+' : '') + p.toFixed(1) + '%';
+        el.className = 'tcp-chg ' + (p >= 0 ? 'up' : 'dn');
+    });
+}
+
+function selectSymbol(sym) {
+    currentSymbol = sym;
+    document.getElementById('tradeSymbol').value = sym;
+    document.querySelectorAll('.ticker-coin-pill').forEach(el => el.classList.remove('active'));
+    const pill = document.getElementById('tcp-' + sym);
+    if (pill) pill.classList.add('active');
+    priceHistory[sym] = generateHistory(sym, currentPrices[sym], 80);
+    updateTickerBar();
+    rebuildChart();
+    updateOrderBook();
+    updateTradeCalc();
+}
+
+function onTradeSymbolChange() {
+    const sym = document.getElementById('tradeSymbol').value;
+    selectSymbol(sym);
+}
+
+/* ── Chart ── */
+function rebuildChart() {
+    const canvas = document.getElementById('priceChart');
+    if (!canvas) return;
+    if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+    const bars = priceHistory[currentSymbol];
+    const labels = bars.map((b, i) => {
+        const d = new Date(b.t);
+        return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+    });
+    const prices = bars.map(b => parseFloat(b.c.toFixed(6)));
+    const isUp = prices[prices.length-1] >= prices[0];
+    const color = isUp ? '#3ecfb2' : '#ff5e6c';
+
+    if (chartType === 'line') {
+        chartInstance = new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    data: prices,
+                    borderColor: color,
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    fill: true,
+                    backgroundColor: isUp ? 'rgba(62,207,178,0.07)' : 'rgba(255,94,108,0.07)',
+                    tension: 0.3
+                }]
+            },
+            options: chartOptions(bars)
+        });
+    } else {
+        chartInstance = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    { label:'High', data: bars.map(b => parseFloat(b.h.toFixed(6))), backgroundColor:'transparent', borderColor:'transparent', barThickness:1 },
+                    { label:'Open', data: bars.map(b => parseFloat(Math.max(b.o,b.c).toFixed(6))), backgroundColor: bars.map(b => b.c >= b.o ? '#3ecfb2' : '#ff5e6c'), barThickness:6, borderRadius:1 },
+                    { label:'Close', data: bars.map(b => parseFloat(Math.min(b.o,b.c).toFixed(6))), backgroundColor: bars.map(b => b.c >= b.o ? '#3ecfb2' : '#ff5e6c'), barThickness:6, borderRadius:1 },
+                ]
+            },
+            options: { ...chartOptions(bars), plugins: { legend: { display: false }, tooltip: { enabled: false } } }
+        });
+    }
+}
+
+function chartOptions(bars) {
+    const prices = bars.map(b => b.c);
+    const mn = Math.min(...bars.map(b=>b.l)) * 0.999;
+    const mx = Math.max(...bars.map(b=>b.h)) * 1.001;
+    return {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        scales: {
+            x: {
+                grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+                ticks: { color: '#7a8399', font: { size: 10, family: "'DM Mono', monospace" }, maxTicksLimit: 8, maxRotation: 0 },
+                border: { display: false }
+            },
+            y: {
+                grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+                ticks: { color: '#7a8399', font: { size: 10, family: "'DM Mono', monospace" }, maxTicksLimit: 6,
+                    callback: v => {
+                        if (v >= 1000) return '$' + (v/1000).toFixed(1) + 'k';
+                        if (v >= 1) return '$' + v.toFixed(2);
+                        return '$' + v.toFixed(4);
+                    }
+                },
+                position: 'right', border: { display: false }, min: mn, max: mx,
+            }
+        },
+        plugins: { legend: { display: false }, tooltip: {
+            mode: 'index', intersect: false,
+            backgroundColor: '#1c2438', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
+            titleColor: '#7a8399', bodyColor: '#e8ecf4',
+            titleFont: { family: "'DM Mono', monospace", size: 11 },
+            bodyFont: { family: "'DM Mono', monospace", size: 12 },
+            callbacks: { label: ctx => '$' + ctx.parsed.y.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:6}) }
+        }}
+    };
+}
+
+function updateChart() {
+    if (!chartInstance) return;
+    const bars = priceHistory[currentSymbol];
+    const prices = bars.map(b => parseFloat(b.c.toFixed(6)));
+    if (chartType === 'line') {
+        chartInstance.data.datasets[0].data = prices;
+    } else {
+        chartInstance.data.datasets[1].data = bars.map(b => parseFloat(Math.max(b.o,b.c).toFixed(6)));
+        chartInstance.data.datasets[2].data = bars.map(b => parseFloat(Math.min(b.o,b.c).toFixed(6)));
+        chartInstance.data.datasets[1].backgroundColor = bars.map(b => b.c >= b.o ? '#3ecfb2' : '#ff5e6c');
+        chartInstance.data.datasets[2].backgroundColor = bars.map(b => b.c >= b.o ? '#3ecfb2' : '#ff5e6c');
+    }
+    chartInstance.update('none');
+}
+
+/* ── Chart controls ── */
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('.interval-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            chartInterval = btn.dataset.interval;
+            priceHistory[currentSymbol] = generateHistory(currentSymbol, currentPrices[currentSymbol], 80);
+            rebuildChart();
+        });
+    });
+    document.querySelectorAll('.ctype-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.ctype-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            chartType = btn.dataset.type;
+            rebuildChart();
+        });
+    });
+    document.querySelectorAll('.op-type-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.op-type-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+    });
+});
+
+/* ── Order book ── */
+function updateOrderBook() {
+    const price = currentPrices[currentSymbol];
+    if (!price) return;
+    const spread = price * 0.0003;
+    const askBase = price + spread / 2;
+    const bidBase = price - spread / 2;
+
+    const d = COIN_DATA[currentSymbol];
+    const makeRows = (baseP, count, dir) => {
+        const rows = [];
+        let total = 0;
+        for (let i = 0; i < count; i++) {
+            const p = baseP + dir * i * price * 0.0001 * (1 + Math.random() * 0.5);
+            const amt = d.vol * (0.02 + Math.random() * 0.15);
+            total += p * amt;
+            rows.push({ p, amt, total });
+        }
+        return rows;
+    };
+
+    const asks = makeRows(askBase, 8, 1).reverse();
+    const bids = makeRows(bidBase, 8, -1);
+    const maxTotal = Math.max(...[...asks,...bids].map(r=>r.total));
+
+    const renderRows = (rows, el) => {
+        if (!el) return;
+        el.innerHTML = rows.map(r => {
+            const pct = (r.total / maxTotal * 100).toFixed(0);
+            const pStr = r.p >= 1 ? r.p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : r.p.toFixed(5);
+            const aStr = r.amt.toFixed(4);
+            const tStr = r.total >= 1000 ? '$'+(r.total/1000).toFixed(1)+'k' : '$'+r.total.toFixed(0);
+            return `<div class="ob-row"><span>${pStr}</span><span>${aStr}</span><span>${tStr}</span><div class="ob-depth-bar" style="width:${pct}%"></div></div>`;
+        }).join('');
+    };
+
+    renderRows(asks, document.getElementById('ob-asks'));
+    renderRows(bids, document.getElementById('ob-bids'));
+
+    const midEl = document.getElementById('obMidPrice');
+    if (midEl) {
+        const pStr = price >= 1 ? price.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : price.toFixed(5);
+        midEl.textContent = '$' + pStr;
+        midEl.style.color = (priceHistory[currentSymbol]?.slice(-1)[0]?.c ?? price) >= (priceHistory[currentSymbol]?.slice(-2)[0]?.c ?? price) ? '#3ecfb2' : '#ff5e6c';
+    }
+
+    const spEl = document.getElementById('obSpread');
+    if (spEl) spEl.textContent = 'Spread: $' + spread.toFixed(spread < 0.01 ? 4 : 2);
+}
+
+/* ── Order side / type ── */
+function setOrderSide(side) {
+    orderSide = side;
+    document.getElementById('opBuyBtn').classList.toggle('active', side === 'buy');
+    document.getElementById('opSellBtn').classList.toggle('active', side === 'sell');
+    document.getElementById('buyBtn').style.display = side === 'buy' ? 'block' : 'none';
+    document.getElementById('sellBtn').style.display = side === 'sell' ? 'block' : 'none';
+}
+
+function setOrderType(type) {
+    orderType = type;
+    document.getElementById('opLimitPriceField').style.display = type !== 'market' ? 'block' : 'none';
+}
+
+function setPct(pct) {
+    const balEl = document.getElementById('balanceDisplay');
+    if (!balEl) return;
+    const bal = parseFloat(balEl.textContent.replace(/[^0-9.]/g,'')) || 0;
+    const amt = (bal * pct / 100).toFixed(2);
+    document.getElementById('tradeAmount').value = amt;
+    updateTradeCalc();
+}
+
+/* ── Trade calc ── */
+function updateEstimate() { updateTradeCalc(); }
+function updateTradeCalc() {
+    const amtEl = document.getElementById('tradeAmount');
+    const amount = parseFloat(amtEl?.value) || 0;
+    const price = currentPrices[currentSymbol] || 1;
+    const fee = amount * (window._tradingFeePercent || 0.1) / 100;
+    const qty = amount / price;
+
+    const qtyEl = document.getElementById('estimatedQty');
+    const priceEl = document.getElementById('opEstPrice');
+    const feeEl = document.getElementById('opFee');
+    const totalEl = document.getElementById('opTotal');
+
+    if (qtyEl) qtyEl.textContent = amount > 0 ? fmtCoin(qty, currentSymbol) + ' ' + currentSymbol : '—';
+    if (priceEl) priceEl.textContent = amount > 0 ? fmt(price) : '—';
+    if (feeEl) feeEl.textContent = amount > 0 ? '$' + fee.toFixed(2) : '—';
+    if (totalEl) totalEl.textContent = amount > 0 ? '$' + (amount + (orderSide === 'buy' ? fee : -fee)).toFixed(2) : '—';
+
+    const balEl = document.getElementById('balanceDisplay');
+    const avEl = document.getElementById('opAvailBalance');
+    if (balEl && avEl) avEl.textContent = balEl.textContent;
+}
+
+function updateOrderCalc() { updateTradeCalc(); }
+
+/* ── Execute trade ── */
+async function executeTrade(side) {
+    const amtEl = document.getElementById('tradeAmount');
+    const amount = parseFloat(amtEl?.value);
+    if (!amount || amount <= 0) { alert('Please enter a valid amount.'); return; }
+
+    const price = currentPrices[currentSymbol];
+    const qty = amount / price;
+    const fee = amount * (window._tradingFeePercent || 0.1) / 100;
+    const total = amount + (side === 'buy' ? fee : -fee);
+    const sym = currentSymbol;
+
+    const btn = side === 'buy' ? document.getElementById('buyBtn') : document.getElementById('sellBtn');
+    const origText = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Placing…';
+
+    try {
+        const user = firebase.auth().currentUser;
+        if (!user) throw new Error('Not signed in');
+        const db = firebase.firestore();
+        const userRef = db.collection('users').doc(user.uid);
+        const snap = await userRef.get();
+        const data = snap.data() || {};
+        const balance = data.balance || 0;
+
+        if (side === 'buy' && total > balance) { alert('Insufficient balance.'); btn.disabled=false; btn.textContent=origText; return; }
+
+        const balDelta = side === 'buy' ? -total : amount - fee;
+        await userRef.update({ balance: firebase.firestore.FieldValue.increment(balDelta) });
+        await userRef.collection('trades').add({
+            symbol: sym, side, amount, qty, price, fee, total,
+            orderType, timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        const newSnap = await userRef.get();
+        const newBal = newSnap.data().balance || 0;
+        document.getElementById('balanceDisplay').textContent = '$' + newBal.toLocaleString('en-US',{minimumFractionDigits:2});
+        document.getElementById('opAvailBalance').textContent = '$' + newBal.toLocaleString('en-US',{minimumFractionDigits:2});
+
+        addRecentTrade({ sym, side, price, amount });
+        amtEl.value = '';
+        updateTradeCalc();
+        if (typeof loadHoldings === 'function') loadHoldings();
+
+        showTradeToast(side, sym, qty, price);
+    } catch(e) {
+        console.error(e); alert('Error: ' + e.message);
+    } finally {
+        btn.disabled = false; btn.textContent = origText;
+    }
+}
+
+/* ── Recent trades (local, session only) ── */
+const _localTrades = [];
+function addRecentTrade(trade) {
+    _localTrades.unshift(trade);
+    if (_localTrades.length > 20) _localTrades.pop();
+    renderRecentTrades();
+}
+function renderRecentTrades() {
+    const el = document.getElementById('recentTradesContainer');
+    if (!el) return;
+    if (!_localTrades.length) { el.innerHTML = '<p class="empty-state" style="font-size:13px; color:var(--muted);">No trades yet.</p>'; return; }
+    el.innerHTML = _localTrades.slice(0,8).map(t => {
+        const pStr = t.price >= 1 ? '$'+t.price.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '$'+t.price.toFixed(5);
+        const now = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+        return `<div class="rt-row">
+            <span class="${t.side==='buy'?'rt-side-buy':'rt-side-sell'}">${t.side.toUpperCase()}</span>
+            <span style="color:var(--text)">${t.sym}</span>
+            <span style="color:var(--text)">${pStr}</span>
+            <span style="color:var(--muted); font-size:10px;">${now}</span>
+        </div>`;
+    }).join('');
+}
+
+/* ── Toast notification ── */
+function showTradeToast(side, sym, qty, price) {
+    const existing = document.getElementById('tradeToast');
+    if (existing) existing.remove();
+    const toast = document.createElement('div');
+    toast.id = 'tradeToast';
+    toast.style.cssText = `position:fixed;bottom:28px;right:28px;z-index:9999;
+        background:#1c2438;border:1px solid ${side==='buy'?'rgba(62,207,178,0.4)':'rgba(255,94,108,0.4)'};
+        border-radius:12px;padding:14px 18px;min-width:220px;
+        font-family:'DM Mono',monospace;animation:slideUp 0.25s ease;`;
+    const pStr = price >= 1 ? '$'+price.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '$'+price.toFixed(5);
+    toast.innerHTML = `
+        <div style="font-size:11px;color:${side==='buy'?'#3ecfb2':'#ff5e6c'};font-weight:700;letter-spacing:1px;margin-bottom:4px;">${side==='buy'?'✓ BOUGHT':'✓ SOLD'}</div>
+        <div style="font-size:15px;color:#e8ecf4;font-weight:500;">${fmtCoin(qty,sym)} ${sym}</div>
+        <div style="font-size:12px;color:#7a8399;margin-top:2px;">@ ${pStr}</div>`;
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.style.opacity='0'; toast.style.transition='opacity 0.4s'; setTimeout(()=>toast.remove(),400); }, 3000);
+}
+
+/* ── Init on trade tab shown ── */
+function initTradeModule() {
+    if (document.getElementById('tradeContent').style.display === 'none') return;
+    if (chartInstance) return;
+    initPrices();
+    buildTickerCoins();
+    updateTickerBar();
+    rebuildChart();
+    updateOrderBook();
+    updateTradeCalc();
+    if (priceTickInterval) clearInterval(priceTickInterval);
+    priceTickInterval = setInterval(tickPrices, 1500);
+}
+window.initTradeModule = initTradeModule;
+
+/* Watch for when tradeContent becomes visible (called by dashboard.js) */
+const _tradeObserver = new MutationObserver(() => {
+    const tc = document.getElementById('tradeContent');
+    if (tc && tc.style.display !== 'none' && !chartInstance) initTradeModule();
+});
+document.addEventListener('DOMContentLoaded', () => {
+    const tc = document.getElementById('tradeContent');
+    if (tc) _tradeObserver.observe(tc, { attributes: true, attributeFilter: ['style'] });
+    if (tc && tc.style.display !== 'none') setTimeout(initTradeModule, 200);
+    renderRecentTrades();
+});
 </script>
 
 <div class="blob blob-1"></div>
