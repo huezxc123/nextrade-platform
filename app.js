@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════
 //  NexTrade — app.js
 //  Firebase Auth + Firestore + live market
-//  Owner detection & admin link
+//  Email verification on signup
 // ══════════════════════════════════════════
 
 // ── YOUR FIREBASE CONFIG ──
@@ -125,6 +125,9 @@ authActionBtn.addEventListener('click', async () => {
       await auth.signInWithEmailAndPassword(email, password);
     } else {
       await auth.createUserWithEmailAndPassword(email, password);
+      // ✅ Send email verification after signup
+      await auth.currentUser.sendEmailVerification();
+      alert('Account created! Please check your email to verify your address.');
     }
     modal.classList.remove('active');
     authEmail.value = '';
@@ -139,7 +142,7 @@ function logout() {
   auth.signOut();
 }
 
-// ═══════════════ OWNER DETECTION ═══════════════
+// Update UI based on auth state
 auth.onAuthStateChanged(async (user) => {
   const ownerPanel = document.getElementById('ownerPanel');
 
@@ -156,7 +159,7 @@ auth.onAuthStateChanged(async (user) => {
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         preferences: { theme: 'dark', notifications: true }
       });
-      userData = { email: user.email }; // no role yet
+      userData = { email: user.email };
     }
 
     console.log('User data:', userData);
@@ -182,7 +185,7 @@ auth.onAuthStateChanged(async (user) => {
     heroCta.textContent = 'Go to Dashboard';
     heroCta.href = 'dashboard.html';
     bottomCta.textContent = 'Go to Dashboard';
-    bottomCta.href = '#';
+    bottomCta.href = 'dashboard.html';
 
   } else {
     // Signed out
@@ -208,7 +211,7 @@ auth.onAuthStateChanged(async (user) => {
   }
 });
 
-// Catch clicks on dynamic login/signup buttons that might appear before auth state resolves
+// Catch clicks on dynamic login/signup buttons
 document.addEventListener('click', (e) => {
   if (e.target.id === 'loginBtn') {
     e.preventDefault();
